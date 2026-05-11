@@ -453,13 +453,13 @@ input[type=color]{width:36px;height:30px;border:1px solid var(--border);border-r
   <div id="export-card">
     <h3>⬇ 匯出 LINE 貼圖</h3>
     <div class="exp-opts">
-      <div class="exp-opt sel" id="eo-png" onclick="selExp('png')">
+      <div class="exp-opt sel" id="eo-apng" onclick="selExp('apng')">
+        <div class="icon">🎞</div><div class="name">APNG 動態</div>
+        <div class="desc">LINE 動態貼圖<br>透明背景支援</div>
+      </div>
+      <div class="exp-opt" id="eo-png" onclick="selExp('png')">
         <div class="icon">🖼</div><div class="name">PNG 靜態</div>
         <div class="desc">靜態貼圖<br>立即下載</div>
-      </div>
-      <div class="exp-opt" id="eo-frames" onclick="selExp('frames')">
-        <div class="icon">📂</div><div class="name">幀序列</div>
-        <div class="desc">逐幀 PNG<br>供 APNG 合成</div>
       </div>
     </div>
     <div id="exp-prog"><div id="exp-bar"></div></div>
@@ -486,7 +486,6 @@ var playing = false, looping = true;
 var curTime = 0, duration = 3, fps = 12;
 var rafId = null, lastTs = null;
 var idCounter = 0;
-var expFmt = 'png';
 var dragging = null, dragOX = 0, dragOY = 0;
 
 // ═══════════════════════
@@ -882,51 +881,263 @@ C.addEventListener('mouseup',function(){if(dragging){dragging=null;buildMiniTL()
 C.addEventListener('touchend',function(){if(dragging){dragging=null;buildMiniTL();}});
 
 // ═══════════════════════
-//  EXPORT
+//  EXPORT + APNG ENCODER
 // ═══════════════════════
-function openExport(){document.getElementById('export-sheet').classList.add('show');document.getElementById('exp-prog').style.display='none';document.getElementById('exp-bar').style.width='0%';document.getElementById('exp-status').textContent='';}
+var expFmt = 'apng';
+
+function openExport(){
+  document.getElementById('export-sheet').classList.add('show');
+  document.getElementById('exp-prog').style.display='none';
+  document.getElementById('exp-bar').style.width='0%';
+  document.getElementById('exp-status').textContent='';
+  selExp(expFmt);
+}
 function closeExport(){document.getElementById('export-sheet').classList.remove('show');}
 function selExp(f){
   expFmt=f;
-  ['png','frames'].forEach(function(x){document.getElementById('eo-'+x).classList.toggle('sel',x===f);});
+  ['apng','png'].forEach(function(x){document.getElementById('eo-'+x).classList.toggle('sel',x===f);});
 }
+
+// ── Off-screen render canvas (full 320×270) ──
+var OC = document.createElement('canvas');
+OC.width=320; OC.height=270;
+var octx = OC.getContext('2d');
+
+function renderOffscreen(t){
+  octx.clearRect(0,0,320,270);
+  layers.forEach(function(l){
+    if(!l.visible) return;
+    var end=l.endTime!==null?l.endTime:duration;
+    if(t<l.startTime||t>end) return;
+    var a=animOff(l,t);
+    var x=l.x+(a.dx||0), y=l.y+(a.dy||0);
+    var sc=l.scale+(a.dscale||0), ro=l.rot+(a.drot||0);
+    var al=l.alpha*(a.dalpha!==undefined?a.dalpha:1);
+    octx.save();
+    octx.globalAlpha=Math.max(0,Math.min(1,al));
+    octx.translate(x,y); octx.rotate(ro*Math.PI/180); octx.scale(sc,sc);
+    if(l.type==='shape'){
+      octx.fillStyle=l.fillColor;
+      if(l.shapeType==='circle'){octx.beginPath();octx.arc(0,0,l.w/2,0,Math.PI*2);octx.fill();}
+      else if(l.shapeType==='rect'){octx.fillRect(-l.w/2,-l.h/2,l.w,l.h);}
+      else if(l.shapeType==='star'){
+        var sp=5,or=l.w/2,ir=l.w/4,step=Math.PI/sp;
+        octx.beginPath();
+        for(var i=0;i<2*sp;i++){var r=i%2===0?or:ir,ag=i*step-Math.PI/2;i===0?octx.moveTo(r*Math.cos(ag),r*Math.sin(ag)):octx.lineTo(r*Math.cos(ag),r*Math.sin(ag));}
+        octx.closePath();octx.fill();
+      }
+    } else if(l.type==='text'){
+      octx.font='bold '+(l.fontSize||36)+'px "Noto Sans TC",sans-serif';
+      octx.textAlign='center';octx.textBaseline='middle';
+      if(l.strokeWidth>0){octx.strokeStyle=l.strokeColor;octx.lineWidth=l.strokeWidth;octx.lineJoin='round';octx.strokeText(l.text||'',0,0);}
+      octx.fillStyle=l.color;octx.fillText(l.text||'',0,0);
+    } else if(l.type==='emoji'){
+      octx.font=(l.fontSize||70)+'px serif';
+      octx.textAlign='center';octx.textBaseline='middle';
+      octx.fillText(l.emoji||'😊',0,0);
+    } else if(l.type==='image'&&l.img){
+      var iw=l.img.naturalWidth||100,ih=l.img.naturalHeight||100;
+      octx.drawImage(l.img,-iw/2,-ih/2,iw,ih);
+    }
+    octx.restore();
+  });
+}
+
+// ── CRC32 table ──
+var CRC32=(function(){
+  var t=new Uint32Array(256);
+  for(var i=0;i<256;i++){var c=i;for(var j=0;j<8;j++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[i]=c;}
+  return {table:t,
+    update:function(c,buf,off,len){for(var i=off;i<off+len;i++)c=t[(c^buf[i])&0xff]^(c>>>8);return c;},
+    calc:function(buf,off,len){return(this.update(0xffffffff,buf,off,len)^0xffffffff)>>>0;}
+  };
+})();
+
+// ── Write helpers ──
+function writeU32(buf,off,val){buf[off]=(val>>>24)&0xff;buf[off+1]=(val>>>16)&0xff;buf[off+2]=(val>>>8)&0xff;buf[off+3]=val&0xff;}
+function writeChunk(type,data){
+  var typeBytes=Array.from(type).map(function(c){return c.charCodeAt(0);});
+  var len=data.length;
+  var chunk=new Uint8Array(4+4+len+4);
+  writeU32(chunk,0,len);
+  chunk.set(typeBytes,4);
+  chunk.set(data,8);
+  var crc=CRC32.calc(chunk,4,4+len);
+  writeU32(chunk,8+len,crc);
+  return chunk;
+}
+
+// ── PNG frame data from canvas ──
+function getFrameData(canvas){
+  var url=canvas.toDataURL('image/png');
+  var b64=url.split(',')[1];
+  var bin=atob(b64);
+  var bytes=new Uint8Array(bin.length);
+  for(var i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+  return bytes; // full PNG bytes
+}
+
+// Extract IDAT chunks from PNG bytes
+function extractIDAT(png){
+  var chunks=[];
+  var i=8; // skip PNG signature
+  while(i<png.length-12){
+    var len=(png[i]<<24|png[i+1]<<16|png[i+2]<<8|png[i+3])>>>0;
+    var type=String.fromCharCode(png[i+4],png[i+5],png[i+6],png[i+7]);
+    if(type==='IDAT') chunks.push(png.slice(i+8,i+8+len));
+    i+=12+len;
+  }
+  return chunks;
+}
+
+// Build APNG from array of PNG frame bytes
+function buildAPNG(frames, delay_num, delay_den){
+  // Use first frame's PNG structure, inject animation chunks
+  var first=frames[0];
+  var sig=first.slice(0,8);
+  var parts=[sig];
+  
+  // Parse first PNG for IHDR, IDAT, IEND
+  var IHDR=null, firstIDAT=[], tail=[];
+  var i=8;
+  while(i<first.length-8){
+    var len=(first[i]<<24|first[i+1]<<16|first[i+2]<<8|first[i+3])>>>0;
+    var type=String.fromCharCode(first[i+4],first[i+5],first[i+6],first[i+7]);
+    var data=first.slice(i+8,i+8+len);
+    if(type==='IHDR') IHDR=data;
+    else if(type==='IDAT') firstIDAT.push(data);
+    i+=12+len;
+  }
+  
+  var w=(IHDR[0]<<24|IHDR[1]<<16|IHDR[2]<<8|IHDR[3])>>>0;
+  var h=(IHDR[4]<<24|IHDR[5]<<16|IHDR[6]<<8|IHDR[7])>>>0;
+  var numFrames=frames.length;
+  var seqNum=0;
+
+  // IHDR chunk
+  parts.push(writeChunk('IHDR',IHDR));
+
+  // acTL chunk (animation control)
+  var actl=new Uint8Array(8);
+  writeU32(actl,0,numFrames); // num_frames
+  writeU32(actl,4,0);         // num_plays (0=infinite)
+  parts.push(writeChunk('acTL',actl));
+
+  frames.forEach(function(framePng, fi){
+    var idats=extractIDAT(framePng);
+
+    // fcTL chunk (frame control)
+    var fctl=new Uint8Array(26);
+    writeU32(fctl,0,seqNum++);   // sequence_number
+    writeU32(fctl,4,w);           // width
+    writeU32(fctl,8,h);           // height
+    writeU32(fctl,12,0);          // x_offset
+    writeU32(fctl,16,0);          // y_offset
+    fctl[20]=(delay_num>>8)&0xff; fctl[21]=delay_num&0xff; // delay_num
+    fctl[22]=(delay_den>>8)&0xff; fctl[23]=delay_den&0xff; // delay_den
+    fctl[24]=0; // dispose_op = NONE
+    fctl[25]=0; // blend_op = SOURCE
+    parts.push(writeChunk('fcTL',fctl));
+
+    if(fi===0){
+      // First frame uses IDAT
+      idats.forEach(function(d){parts.push(writeChunk('IDAT',d));});
+    } else {
+      // Subsequent frames use fdAT
+      idats.forEach(function(d){
+        var fdat=new Uint8Array(4+d.length);
+        writeU32(fdat,0,seqNum++);
+        fdat.set(d,4);
+        parts.push(writeChunk('fdAT',fdat));
+      });
+    }
+  });
+
+  // IEND
+  parts.push(writeChunk('IEND',new Uint8Array(0)));
+
+  // Concatenate
+  var total=parts.reduce(function(s,p){return s+p.length;},0);
+  var out=new Uint8Array(total);
+  var off=0;
+  parts.forEach(function(p){out.set(p,off);off+=p.length;});
+  return out;
+}
+
 function doExport(){
-  var prog=document.getElementById('exp-prog');
   var bar=document.getElementById('exp-bar');
   var status=document.getElementById('exp-status');
-  prog.style.display='block';bar.style.width='5%';
+  document.getElementById('exp-prog').style.display='block';
+  bar.style.width='3%';
+
   if(expFmt==='png'){
     status.textContent='渲染靜態幀...';
     setTimeout(function(){
-      render(0);bar.style.width='80%';
-      C.toBlob(function(blob){
+      renderOffscreen(0);
+      OC.toBlob(function(blob){
         downloadBlob(blob,'sticker.png');
         bar.style.width='100%';status.textContent='✓ 完成！';
         notify('PNG 已下載！');
       },'image/png');
-    },200);
-  } else {
-    var total=Math.min(Math.ceil(duration*fps),48);
-    var fi=0;
-    status.textContent='逐幀渲染...';
-    function next(){
-      if(fi>=total){bar.style.width='100%';status.textContent='✓ 幀序列完成！';notify('幀序列下載完成！');return;}
-      render((fi/total)*duration);
-      bar.style.width=Math.round(fi/total*100)+'%';
-      status.textContent='幀 '+(fi+1)+' / '+total;
-      var idx=fi;
-      C.toBlob(function(b){downloadBlob(b,'frame_'+String(idx).padStart(3,'0')+'.png');});
-      fi++;setTimeout(next,80);
-    }
-    next();
+    },100);
+    return;
   }
+
+  // APNG export
+  var totalFrames=Math.min(Math.ceil(duration*fps), 60);
+  var delay_den=fps;
+  var delay_num=1;
+  var framePNGs=[];
+  var fi=0;
+
+  status.textContent='準備渲染 '+totalFrames+' 幀...';
+
+  function nextFrame(){
+    if(fi>=totalFrames){
+      status.textContent='合成 APNG 中...';
+      bar.style.width='90%';
+      setTimeout(function(){
+        try{
+          var apng=buildAPNG(framePNGs,delay_num,delay_den);
+          var blob=new Blob([apng],{type:'image/png'});
+          downloadBlob(blob,'sticker_animated.png');
+          bar.style.width='100%';
+          status.textContent='✓ APNG 已下載！可直接上傳 LINE Creators Market';
+          notify('🎉 APNG 動態貼圖下載完成！');
+        }catch(e){
+          status.textContent='錯誤: '+e.message;
+          notify('匯出失敗，請重試');
+        }
+      },100);
+      return;
+    }
+    var t=(fi/totalFrames)*duration;
+    renderOffscreen(t);
+    bar.style.width=Math.round((fi/totalFrames)*85)+'%';
+    status.textContent='渲染幀 '+(fi+1)+' / '+totalFrames;
+    var idx=fi;
+    OC.toBlob(function(blob){
+      var reader=new FileReader();
+      reader.onload=function(ev){
+        var bin=ev.target.result;
+        var bytes=new Uint8Array(bin);
+        framePNGs[idx]=bytes;
+        fi++;
+        setTimeout(nextFrame,8);
+      };
+      reader.readAsArrayBuffer(blob);
+    },'image/png');
+  }
+  nextFrame();
 }
+
 function downloadBlob(blob,name){
   var url=URL.createObjectURL(blob);
   var a=document.createElement('a');
   a.href=url;a.download=name;
   document.body.appendChild(a);a.click();
-  document.body.removeChild(a);URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+  setTimeout(function(){URL.revokeObjectURL(url);},1000);
 }
 
 // ═══════════════════════
