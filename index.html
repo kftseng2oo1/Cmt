@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>LINE 貼圖動畫編輯器</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
+:root {
+  --bg:#0f0f14; --panel:#1a1a24; --panel2:#22222f;
+  --border:#2e2e42; --accent:#00d084; --purple:#7c3aed;
+  --amber:#f59e0b; --text:#e8e8f0; --dim:#7070a0;
+  --green:#06c755; --red:#ef4444;
+  --tab-h:52px; --bottom-h:120px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+html,body{width:100%;height:100%;overflow:hidden;font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text);}
+
+/* ── APP SHELL ── */
+#app{display:flex;flex-direction:column;height:100vh;height:100dvh;}
+
+/* ── TOP BAR ── */
+#topbar{
+  display:flex;align-items:center;gap:8px;
+  padding:0 12px;height:48px;
+  background:var(--panel);
+  border-bottom:1px solid var(--border);
+  flex-shrink:0;
+}
+.logo{font-size:13px;font-weight:900;color:var(--green);letter-spacing:.5px;}
+.logo span{color:var(--dim);}
+.spacer{flex:1;}
+#btn-export{
+  background:var(--green);color:#000;font-weight:700;
+  border:none;border-radius:8px;padding:7px 14px;font-size:12px;cursor:pointer;
+}
+
+/* ── CANVAS ZONE ── */
+#canvas-zone{
+  flex:1;display:flex;align-items:center;justify-content:center;
+  background:var(--bg);position:relative;overflow:hidden;
+  min-height:0;
+}
+#canvas-wrap{position:relative;flex-shrink:0;}
+canvas{
+  display:block;border-radius:10px;
+  border:2px solid var(--border);
+  background:#fff;touch-action:none;
+}
+#canvas-badge{
+  position:absolute;top:6px;left:6px;
+  background:rgba(0,0,0,.6);border-radius:4px;
+  padding:2px 7px;font-size:9px;color:var(--accent);
+  font-family:monospace;pointer-events:none;
+}
+#canvas-fps{
+  position:absolute;top:6px;right:6px;
+  background:rgba(0,0,0,.6);border-radius:4px;
+  padding:2px 7px;font-size:9px;color:var(--dim);
+  font-family:monospace;pointer-events:none;
+}
+
+/* ── BOTTOM PANEL ── */
+#bottom{
+  background:var(--panel);
+  border-top:1px solid var(--border);
+  flex-shrink:0;
+}
+
+/* Tab bar */
+#tabs{
+  display:flex;border-bottom:1px solid var(--border);
+}
+.tab{
+  flex:1;padding:10px 4px 8px;text-align:center;
+  font-size:10px;color:var(--dim);cursor:pointer;
+  border-bottom:2px solid transparent;transition:all .15s;
+}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+.tab .icon{font-size:18px;display:block;margin-bottom:2px;}
+
+/* Tab content */
+#tab-content{overflow:hidden;}
+.tab-pane{display:none;padding:10px 12px 12px;}
+.tab-pane.active{display:block;}
+
+/* ── PLAYBACK TAB ── */
+#play-controls{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+.ctl-btn{
+  width:40px;height:40px;border-radius:10px;
+  background:var(--panel2);border:1px solid var(--border);
+  color:var(--text);font-size:16px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+}
+.ctl-btn.primary{background:var(--green);border-color:var(--green);color:#000;font-size:20px;}
+.ctl-btn.active{background:var(--purple);border-color:var(--purple);}
+#time-disp{font-size:14px;font-family:monospace;color:var(--accent);min-width:48px;}
+#loop-btn{font-size:11px;color:var(--dim);cursor:pointer;padding:6px 10px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;}
+#loop-btn.on{color:var(--green);border-color:var(--green);}
+
+/* Mini timeline */
+#mini-tl{
+  background:var(--bg);border-radius:8px;
+  border:1px solid var(--border);
+  height:44px;position:relative;overflow:hidden;cursor:pointer;
+}
+#mini-tl-inner{height:100%;position:relative;}
+.mini-track{height:8px;border-radius:4px;position:absolute;opacity:.7;}
+#mini-playhead{
+  position:absolute;top:0;bottom:0;width:2px;
+  background:var(--accent);pointer-events:none;z-index:5;
+}
+#mini-playhead::before{
+  content:'';position:absolute;top:0;left:-4px;
+  border-left:5px solid transparent;border-right:5px solid transparent;
+  border-top:7px solid var(--accent);
+}
+.dur-row{display:flex;align-items:center;gap:8px;margin-top:8px;}
+.dur-row label{font-size:11px;color:var(--dim);}
+#dur-input{
+  background:var(--bg);border:1px solid var(--border);
+  color:var(--text);font-size:13px;padding:5px 8px;
+  border-radius:7px;font-family:monospace;width:60px;text-align:center;
+}
+#fps-select{
+  background:var(--bg);border:1px solid var(--border);
+  color:var(--text);font-size:12px;padding:5px 8px;
+  border-radius:7px;cursor:pointer;
+}
+
+/* ── LAYERS TAB ── */
+#layer-list{max-height:130px;overflow-y:auto;}
+.layer-row{
+  display:flex;align-items:center;gap:10px;
+  padding:8px 10px;border-radius:8px;margin-bottom:4px;
+  background:var(--bg);cursor:pointer;
+  border:1.5px solid transparent;transition:border-color .12s;
+}
+.layer-row.active{border-color:var(--purple);}
+.layer-ico{font-size:22px;flex-shrink:0;width:32px;text-align:center;}
+.layer-info{flex:1;min-width:0;}
+.layer-name{font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.layer-sub{font-size:10px;color:var(--dim);margin-top:1px;}
+.vis-btn{font-size:18px;padding:4px;}
+#add-btns{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;}
+.add-btn{
+  flex:1;min-width:60px;padding:8px 4px;text-align:center;
+  background:var(--panel2);border:1px dashed var(--border);
+  border-radius:8px;font-size:11px;color:var(--dim);cursor:pointer;
+  transition:all .12s;
+}
+.add-btn:active{border-color:var(--accent);color:var(--accent);}
+.add-btn .i{font-size:18px;display:block;margin-bottom:3px;}
+
+/* ── PROPS TAB ── */
+.prop-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;}
+.prop-block{background:var(--bg);border-radius:8px;border:1px solid var(--border);padding:8px 10px;}
+.prop-block label{font-size:9px;color:var(--dim);letter-spacing:1px;text-transform:uppercase;}
+.prop-block input[type=number]{
+  width:100%;background:none;border:none;color:var(--text);
+  font-size:15px;font-weight:700;font-family:monospace;
+  padding:2px 0;
+}
+.prop-block input[type=number]:focus{outline:none;}
+.slider-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.slider-row label{font-size:11px;color:var(--dim);width:42px;flex-shrink:0;}
+.slider-row input[type=range]{flex:1;height:4px;-webkit-appearance:none;background:var(--border);border-radius:2px;cursor:pointer;}
+.slider-row input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--purple);cursor:pointer;border:2px solid var(--bg);}
+.slider-val{font-size:10px;font-family:monospace;color:var(--dim);width:36px;text-align:right;}
+
+/* ── ANIM TAB ── */
+.anim-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px;}
+.anim-btn{
+  padding:10px 4px;text-align:center;
+  background:var(--bg);border:1.5px solid var(--border);
+  border-radius:10px;font-size:12px;color:var(--dim);cursor:pointer;
+  transition:all .12s;
+}
+.anim-btn .ae{font-size:20px;display:block;margin-bottom:3px;}
+.anim-btn.active{background:var(--purple);border-color:var(--purple);color:#fff;font-weight:700;}
+.anim-btn:active{opacity:.7;}
+
+/* ── TEXT TAB ── */
+#text-input-area{
+  width:100%;background:var(--bg);border:1px solid var(--border);
+  color:var(--text);font-size:15px;padding:10px;border-radius:8px;
+  margin-bottom:8px;font-family:'Noto Sans TC',sans-serif;
+}
+#text-input-area:focus{outline:none;border-color:var(--purple);}
+.color-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.color-row label{font-size:11px;color:var(--dim);width:52px;}
+input[type=color]{width:36px;height:30px;border:1px solid var(--border);border-radius:6px;padding:0;cursor:pointer;background:none;}
+
+/* ── UPLOAD SHEET ── */
+#upload-sheet{
+  position:fixed;inset:0;z-index:50;
+  display:none;align-items:flex-end;
+}
+#upload-sheet.show{display:flex;}
+#upload-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.6);}
+#upload-card{
+  position:relative;width:100%;
+  background:var(--panel);border-radius:20px 20px 0 0;
+  padding:20px 16px 32px;
+}
+#upload-drop{
+  border:2px dashed var(--border);border-radius:12px;
+  padding:32px 16px;text-align:center;cursor:pointer;
+  transition:all .15s;margin-bottom:12px;
+}
+#upload-drop:active,#upload-drop.drag{border-color:var(--accent);background:rgba(0,208,132,.06);}
+#upload-drop .icon{font-size:40px;margin-bottom:8px;}
+#upload-drop p{font-size:13px;color:var(--dim);}
+#file-input{display:none;}
+
+/* ── EXPORT SHEET ── */
+#export-sheet{
+  position:fixed;inset:0;z-index:50;
+  display:none;align-items:flex-end;
+}
+#export-sheet.show{display:flex;}
+#export-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.6);}
+#export-card{
+  position:relative;width:100%;
+  background:var(--panel);border-radius:20px 20px 0 0;
+  padding:20px 16px 36px;
+}
+#export-card h3{font-size:16px;margin-bottom:14px;}
+.exp-opts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;}
+.exp-opt{
+  border:2px solid var(--border);border-radius:12px;
+  padding:14px 10px;text-align:center;cursor:pointer;
+  transition:all .15s;
+}
+.exp-opt.sel{border-color:var(--green);background:rgba(6,199,85,.08);}
+.exp-opt .icon{font-size:28px;margin-bottom:5px;}
+.exp-opt .name{font-size:12px;font-weight:700;}
+.exp-opt .desc{font-size:10px;color:var(--dim);margin-top:3px;}
+#exp-prog{height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin:10px 0;display:none;}
+#exp-bar{height:100%;background:linear-gradient(90deg,var(--green),var(--accent));width:0%;transition:width .2s;}
+#exp-status{font-size:11px;color:var(--dim);margin-bottom:10px;min-height:16px;}
+.sheet-btns{display:flex;gap:8px;}
+.sheet-btn{flex:1;padding:12px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;border:none;text-align:center;}
+.sheet-btn.cancel{background:var(--panel2);color:var(--text);}
+.sheet-btn.ok{background:var(--green);color:#000;}
+
+/* ── NOTIFICATION ── */
+#notif{
+  position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
+  background:var(--purple);color:#fff;
+  padding:9px 20px;border-radius:20px;
+  font-size:12px;font-weight:700;
+  z-index:200;opacity:0;transition:opacity .3s;
+  pointer-events:none;white-space:nowrap;
+  box-shadow:0 4px 20px rgba(124,58,237,.4);
+}
+#notif.show{opacity:1;}
+
+::-webkit-scrollbar{width:4px;height:4px;}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- TOP BAR -->
+  <div id="topbar">
+    <div class="logo">LINE<span> STICKER</span> STUDIO</div>
+    <div class="spacer"></div>
+    <button id="btn-export" onclick="openExport()">⬇ 匯出</button>
+  </div>
+
+  <!-- CANVAS -->
+  <div id="canvas-zone">
+    <div id="canvas-wrap">
+      <canvas id="c" width="320" height="270"></canvas>
+      <div id="canvas-badge">320 × 270 px</div>
+      <div id="canvas-fps">12 FPS</div>
+    </div>
+  </div>
+
+  <!-- BOTTOM PANEL -->
+  <div id="bottom">
+    <!-- TABS -->
+    <div id="tabs">
+      <div class="tab active" data-tab="play" onclick="switchTab('play')">
+        <span class="icon">▶</span>播放
+      </div>
+      <div class="tab" data-tab="layers" onclick="switchTab('layers')">
+        <span class="icon">◫</span>圖層
+      </div>
+      <div class="tab" data-tab="anim" onclick="switchTab('anim')">
+        <span class="icon">✨</span>動畫
+      </div>
+      <div class="tab" data-tab="props" onclick="switchTab('props')">
+        <span class="icon">⚙</span>屬性
+      </div>
+      <div class="tab" data-tab="text" onclick="switchTab('text')">
+        <span class="icon">✏</span>文字
+      </div>
+    </div>
+
+    <div id="tab-content">
+
+      <!-- PLAY TAB -->
+      <div class="tab-pane active" id="tab-play">
+        <div id="play-controls">
+          <button class="ctl-btn" onclick="rewind()">⏮</button>
+          <button class="ctl-btn primary" id="btn-play" onclick="togglePlay()">▶</button>
+          <button class="ctl-btn" onclick="stopAnim()">⏹</button>
+          <div id="time-disp">0.00s</div>
+          <div class="spacer"></div>
+          <button id="loop-btn" class="on" onclick="toggleLoop()">🔁 循環</button>
+          <select id="fps-select" onchange="setFPS(this.value)">
+            <option value="8">8fps</option>
+            <option value="12" selected>12fps</option>
+            <option value="15">15fps</option>
+            <option value="24">24fps</option>
+          </select>
+        </div>
+        <div id="mini-tl">
+          <div id="mini-tl-inner"></div>
+          <div id="mini-playhead"></div>
+        </div>
+        <div class="dur-row">
+          <label>時長(秒)</label>
+          <input id="dur-input" type="number" value="3" min="1" max="10" step="0.5" onchange="setDuration(parseFloat(this.value))">
+          <div class="spacer"></div>
+          <button class="add-btn" style="flex:none;padding:6px 12px;border-style:solid;" onclick="addKeyframe()">◆ 關鍵格</button>
+        </div>
+      </div>
+
+      <!-- LAYERS TAB -->
+      <div class="tab-pane" id="tab-layers">
+        <div id="layer-list"></div>
+        <div id="add-btns">
+          <div class="add-btn" onclick="openUpload()"><span class="i">🖼</span>圖片</div>
+          <div class="add-btn" onclick="addEmojiLayer()"><span class="i">😊</span>貼圖</div>
+          <div class="add-btn" onclick="addShapeLayer()"><span class="i">⬟</span>形狀</div>
+          <div class="add-btn" onclick="delSelectedLayer()"><span class="i">🗑</span>刪除</div>
+        </div>
+      </div>
+
+      <!-- ANIM TAB -->
+      <div class="tab-pane" id="tab-anim">
+        <div class="anim-grid" id="anim-grid">
+          <div class="anim-btn active" data-anim="none" onclick="setAnim('none')"><span class="ae">⬜</span>無</div>
+          <div class="anim-btn" data-anim="bounce" onclick="setAnim('bounce')"><span class="ae">🏀</span>彈跳</div>
+          <div class="anim-btn" data-anim="spin" onclick="setAnim('spin')"><span class="ae">🌀</span>旋轉</div>
+          <div class="anim-btn" data-anim="pulse" onclick="setAnim('pulse')"><span class="ae">💓</span>脈動</div>
+          <div class="anim-btn" data-anim="shake" onclick="setAnim('shake')"><span class="ae">📳</span>搖晃</div>
+          <div class="anim-btn" data-anim="float" onclick="setAnim('float')"><span class="ae">🪁</span>漂浮</div>
+          <div class="anim-btn" data-anim="fade" onclick="setAnim('fade')"><span class="ae">👻</span>淡入出</div>
+          <div class="anim-btn" data-anim="swing" onclick="setAnim('swing')"><span class="ae">🎋</span>擺動</div>
+          <div class="anim-btn" data-anim="zoom" onclick="setAnim('zoom')"><span class="ae">🔍</span>縮放</div>
+        </div>
+        <div class="slider-row">
+          <label>速度</label>
+          <input type="range" id="sl-speed" min="1" max="10" value="5" oninput="updateProp('animSpeed',this.value/5);document.getElementById('v-speed').textContent=this.value">
+          <span class="slider-val" id="v-speed">5</span>
+        </div>
+      </div>
+
+      <!-- PROPS TAB -->
+      <div class="tab-pane" id="tab-props">
+        <div class="prop-grid">
+          <div class="prop-block">
+            <label>X 位置</label>
+            <input type="number" id="p-x" value="160" oninput="updateProp('x',parseFloat(this.value))">
+          </div>
+          <div class="prop-block">
+            <label>Y 位置</label>
+            <input type="number" id="p-y" value="135" oninput="updateProp('y',parseFloat(this.value))">
+          </div>
+        </div>
+        <div class="slider-row">
+          <label>縮放</label>
+          <input type="range" id="sl-scale" min="10" max="300" value="100" oninput="updateProp('scale',this.value/100);document.getElementById('v-scale').textContent=this.value+'%'">
+          <span class="slider-val" id="v-scale">100%</span>
+        </div>
+        <div class="slider-row">
+          <label>旋轉</label>
+          <input type="range" id="sl-rot" min="-180" max="180" value="0" oninput="updateProp('rot',parseFloat(this.value));document.getElementById('v-rot').textContent=this.value+'°'">
+          <span class="slider-val" id="v-rot">0°</span>
+        </div>
+        <div class="slider-row">
+          <label>透明度</label>
+          <input type="range" id="sl-alpha" min="0" max="100" value="100" oninput="updateProp('alpha',this.value/100);document.getElementById('v-alpha').textContent=this.value+'%'">
+          <span class="slider-val" id="v-alpha">100%</span>
+        </div>
+      </div>
+
+      <!-- TEXT TAB -->
+      <div class="tab-pane" id="tab-text">
+        <textarea id="text-input-area" rows="2" placeholder="輸入文字內容..." oninput="updateProp('text',this.value)"></textarea>
+        <div class="slider-row">
+          <label>大小</label>
+          <input type="range" id="sl-fsize" min="12" max="100" value="36" oninput="updateProp('fontSize',parseInt(this.value));document.getElementById('v-fsize').textContent=this.value">
+          <span class="slider-val" id="v-fsize">36</span>
+        </div>
+        <div class="color-row">
+          <label>文字色</label>
+          <input type="color" id="p-color" value="#cc2200" oninput="updateProp('color',this.value)">
+        </div>
+        <div class="color-row">
+          <label>描邊色</label>
+          <input type="color" id="p-stroke" value="#ffffff" oninput="updateProp('strokeColor',this.value)">
+          <input type="range" id="sl-sw" min="0" max="20" value="4" style="flex:1;height:4px;-webkit-appearance:none;background:var(--border);border-radius:2px;cursor:pointer;" oninput="updateProp('strokeWidth',parseInt(this.value));document.getElementById('v-sw').textContent=this.value">
+          <span class="slider-val" id="v-sw">4</span>
+        </div>
+        <div style="margin-top:8px;display:flex;gap:6px;">
+          <button class="add-btn" style="flex:1;padding:10px;border-style:solid;font-size:13px;" onclick="addTextFromTab()">✏ 新增文字圖層</button>
+        </div>
+      </div>
+
+    </div><!-- end tab-content -->
+  </div><!-- end bottom -->
+</div><!-- end app -->
+
+<!-- UPLOAD SHEET -->
+<div id="upload-sheet">
+  <div id="upload-backdrop" onclick="closeUpload()"></div>
+  <div id="upload-card">
+    <div id="upload-drop"
+      onclick="document.getElementById('file-input').click()"
+      ondragover="event.preventDefault();this.classList.add('drag')"
+      ondragleave="this.classList.remove('drag')"
+      ondrop="handleDrop(event)">
+      <div class="icon">📁</div>
+      <p>點擊或拖曳上傳圖片<br><span style="font-size:11px;">支援 PNG / JPG / WebP</span></p>
+    </div>
+    <input type="file" id="file-input" accept="image/*" multiple onchange="handleFiles(this.files)">
+    <div class="sheet-btns">
+      <button class="sheet-btn cancel" onclick="closeUpload()">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- EXPORT SHEET -->
+<div id="export-sheet">
+  <div id="export-backdrop" onclick="closeExport()"></div>
+  <div id="export-card">
+    <h3>⬇ 匯出 LINE 貼圖</h3>
+    <div class="exp-opts">
+      <div class="exp-opt sel" id="eo-png" onclick="selExp('png')">
+        <div class="icon">🖼</div><div class="name">PNG 靜態</div>
+        <div class="desc">靜態貼圖<br>立即下載</div>
+      </div>
+      <div class="exp-opt" id="eo-frames" onclick="selExp('frames')">
+        <div class="icon">📂</div><div class="name">幀序列</div>
+        <div class="desc">逐幀 PNG<br>供 APNG 合成</div>
+      </div>
+    </div>
+    <div id="exp-prog"><div id="exp-bar"></div></div>
+    <div id="exp-status"></div>
+    <div class="sheet-btns">
+      <button class="sheet-btn cancel" onclick="closeExport()">取消</button>
+      <button class="sheet-btn ok" onclick="doExport()">開始匯出</button>
+    </div>
+  </div>
+</div>
+
+<!-- NOTIFICATION -->
+<div id="notif"></div>
+
+<script>
+// ═══════════════════════
+//  STATE
+// ═══════════════════════
+var C = document.getElementById('c');
+var ctx = C.getContext('2d');
+var layers = [];
+var selId = null;
+var playing = false, looping = true;
+var curTime = 0, duration = 3, fps = 12;
+var rafId = null, lastTs = null;
+var idCounter = 0;
+var expFmt = 'png';
+var dragging = null, dragOX = 0, dragOY = 0;
+
+// ═══════════════════════
+//  LAYER FACTORY
+// ═══════════════════════
+function mkLayer(o) {
+  idCounter++;
+  return Object.assign({
+    id: idCounter, name: 'Layer '+idCounter,
+    type: 'emoji', x: 160, y: 135,
+    scale: 1, rot: 0, alpha: 1, visible: true,
+    anim: 'none', animSpeed: 1,
+    text: '文字', fontSize: 36, color: '#cc2200',
+    strokeColor: '#ffffff', strokeWidth: 4,
+    emoji: '😄', img: null,
+    shapeType: 'circle', fillColor: '#ff4466', w: 80, h: 80,
+    keyframes: [], startTime: 0, endTime: null,
+  }, o);
+}
+
+// ═══════════════════════
+//  CANVAS SIZING
+// ═══════════════════════
+function sizeCanvas() {
+  var zone = document.getElementById('canvas-zone');
+  var zW = zone.clientWidth, zH = zone.clientHeight;
+  var maxW = Math.min(zW - 16, 360);
+  var maxH = Math.min(zH - 16, 310);
+  var ratio = 320 / 270;
+  var w, h;
+  if (maxW / ratio <= maxH) { w = maxW; h = maxW / ratio; }
+  else { h = maxH; w = maxH * ratio; }
+  C.style.width = Math.round(w) + 'px';
+  C.style.height = Math.round(h) + 'px';
+}
+
+// ═══════════════════════
+//  ANIM OFFSET
+// ═══════════════════════
+function animOff(layer, t) {
+  var f = layer.animSpeed * 2 * Math.PI;
+  switch (layer.anim) {
+    case 'bounce': return {dy: -Math.abs(Math.sin(t*f))*18};
+    case 'spin':   return {drot: t*360*layer.animSpeed};
+    case 'pulse':  return {dscale: .12*Math.sin(t*f)};
+    case 'shake':  return {dx: Math.sin(t*f*2)*7};
+    case 'float':  return {dy: Math.sin(t*f*.6)*9};
+    case 'fade':   return {dalpha: .5+.5*Math.sin(t*f)};
+    case 'swing':  return {drot: Math.sin(t*f)*14};
+    case 'zoom':   return {dscale: .18*Math.sin(t*f)};
+    default:       return {};
+  }
+}
+
+// ═══════════════════════
+//  RENDER
+// ═══════════════════════
+function render(t) {
+  ctx.clearRect(0, 0, C.width, C.height);
+  layers.forEach(function(l) {
+    if (!l.visible) return;
+    var end = l.endTime !== null ? l.endTime : duration;
+    if (t < l.startTime || t > end) return;
+    var a = animOff(l, t);
+    var x = l.x+(a.dx||0), y = l.y+(a.dy||0);
+    var sc = l.scale+(a.dscale||0), ro = l.rot+(a.drot||0);
+    var al = l.alpha*(a.dalpha!==undefined?a.dalpha:1);
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, Math.min(1, al));
+    ctx.translate(x, y);
+    ctx.rotate(ro*Math.PI/180);
+    ctx.scale(sc, sc);
+    if (l.type==='shape') {
+      ctx.fillStyle = l.fillColor;
+      if (l.shapeType==='circle'){ctx.beginPath();ctx.arc(0,0,l.w/2,0,Math.PI*2);ctx.fill();}
+      else if (l.shapeType==='rect'){ctx.fillRect(-l.w/2,-l.h/2,l.w,l.h);}
+      else if (l.shapeType==='star'){drawStar(ctx,5,l.w/2,l.w/4);ctx.fill();}
+    } else if (l.type==='text') {
+      ctx.font='bold '+(l.fontSize||36)+'px "Noto Sans TC",sans-serif';
+      ctx.textAlign='center';ctx.textBaseline='middle';
+      if (l.strokeWidth>0){ctx.strokeStyle=l.strokeColor;ctx.lineWidth=l.strokeWidth;ctx.lineJoin='round';ctx.strokeText(l.text||'',0,0);}
+      ctx.fillStyle=l.color;ctx.fillText(l.text||'',0,0);
+    } else if (l.type==='emoji') {
+      ctx.font=(l.fontSize||70)+'px serif';
+      ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText(l.emoji||'😊',0,0);
+    } else if (l.type==='image'&&l.img) {
+      var iw=l.img.naturalWidth||l.img.width||100;
+      var ih=l.img.naturalHeight||l.img.height||100;
+      ctx.drawImage(l.img,-iw/2,-ih/2,iw,ih);
+    }
+    ctx.restore();
+    // selection outline
+    if (l.id===selId) {
+      var sz=(l.fontSize||70)*sc;
+      ctx.save();ctx.translate(x,y);ctx.rotate(ro*Math.PI/180);
+      ctx.strokeStyle='#7c3aed';ctx.lineWidth=2/sc;ctx.setLineDash([4/sc,3/sc]);
+      ctx.strokeRect(-sz/2-5/sc,-sz/2-5/sc,sz+10/sc,sz+10/sc);
+      ctx.setLineDash([]);ctx.restore();
+    }
+  });
+}
+
+function drawStar(ctx, spikes, outer, inner) {
+  var step=Math.PI/spikes;
+  ctx.beginPath();
+  for(var i=0;i<2*spikes;i++){
+    var r=i%2===0?outer:inner, a=i*step-Math.PI/2;
+    i===0?ctx.moveTo(r*Math.cos(a),r*Math.sin(a)):ctx.lineTo(r*Math.cos(a),r*Math.sin(a));
+  }
+  ctx.closePath();
+}
+
+// ═══════════════════════
+//  PLAYBACK
+// ═══════════════════════
+function loop(ts) {
+  if(!lastTs) lastTs=ts;
+  curTime += (ts-lastTs)/1000;
+  lastTs=ts;
+  if(curTime>=duration){
+    if(looping) curTime%=duration;
+    else{curTime=duration;stopAnim();}
+  }
+  render(curTime);
+  updateTimeUI();
+  updateMiniPlayhead();
+  if(playing) rafId=requestAnimationFrame(loop);
+}
+function togglePlay(){
+  playing=!playing;
+  if(playing){
+    lastTs=null;
+    document.getElementById('btn-play').textContent='⏸';
+    document.getElementById('btn-play').classList.add('active');
+    rafId=requestAnimationFrame(loop);
+  } else {
+    stopAnim();
+  }
+}
+function stopAnim(){
+  playing=false;cancelAnimationFrame(rafId);lastTs=null;
+  document.getElementById('btn-play').textContent='▶';
+  document.getElementById('btn-play').classList.remove('active');
+}
+function rewind(){curTime=0;render(0);updateTimeUI();updateMiniPlayhead();}
+function toggleLoop(){
+  looping=!looping;
+  document.getElementById('loop-btn').classList.toggle('on',looping);
+}
+function setFPS(v){fps=parseInt(v);document.getElementById('canvas-fps').textContent=v+' FPS';}
+function setDuration(v){duration=v;buildMiniTL();}
+function updateTimeUI(){document.getElementById('time-disp').textContent=curTime.toFixed(2)+'s';}
+
+// idle render
+(function idleTick(){requestAnimationFrame(function(ts){if(!playing)render(curTime);idleTick();})})();
+
+// ═══════════════════════
+//  MINI TIMELINE
+// ═══════════════════════
+var TRACK_COLORS=['#7c3aed','#00d084','#f59e0b','#ef4444','#3b82f6','#ec4899'];
+function buildMiniTL(){
+  var el=document.getElementById('mini-tl-inner');
+  el.innerHTML='';
+  var W=document.getElementById('mini-tl').clientWidth||300;
+  layers.slice().reverse().forEach(function(l,i){
+    var seg=document.createElement('div');
+    seg.className='mini-track';
+    var s=(l.startTime/duration)*W;
+    var e=((l.endTime!==null?l.endTime:duration)/duration)*W;
+    seg.style.left=s+'px';seg.style.width=(e-s)+'px';
+    seg.style.top=(4+i*11)+'px';
+    seg.style.background=TRACK_COLORS[i%TRACK_COLORS.length];
+    el.appendChild(seg);
+    // keyframes
+    l.keyframes.forEach(function(kf){
+      var d=document.createElement('div');
+      d.style.cssText='position:absolute;top:'+(4+i*11-2)+'px;left:'+(kf.time/duration*W-5)+'px;width:10px;height:10px;background:'+TRACK_COLORS[i%TRACK_COLORS.length]+';border:2px solid #fff;border-radius:2px;transform:rotate(45deg);';
+      el.appendChild(d);
+    });
+  });
+}
+function updateMiniPlayhead(){
+  var W=document.getElementById('mini-tl').clientWidth||300;
+  document.getElementById('mini-playhead').style.left=(curTime/duration*W)+'px';
+}
+document.getElementById('mini-tl').addEventListener('click',function(e){
+  var rect=this.getBoundingClientRect();
+  var pct=(e.clientX-rect.left)/rect.width;
+  curTime=Math.max(0,Math.min(duration,pct*duration));
+  render(curTime);updateTimeUI();updateMiniPlayhead();
+});
+document.getElementById('mini-tl').addEventListener('touchstart',function(e){
+  var rect=this.getBoundingClientRect();
+  var pct=(e.touches[0].clientX-rect.left)/rect.width;
+  curTime=Math.max(0,Math.min(duration,pct*duration));
+  render(curTime);updateTimeUI();updateMiniPlayhead();
+},{passive:true});
+
+function addKeyframe(){
+  var l=getSel();if(!l){notify('請先選擇圖層');return;}
+  l.keyframes.push({time:curTime,x:l.x,y:l.y,scale:l.scale,rot:l.rot,alpha:l.alpha});
+  l.keyframes.sort(function(a,b){return a.time-b.time;});
+  buildMiniTL();notify('關鍵格 @ '+curTime.toFixed(2)+'s');
+}
+
+// ═══════════════════════
+//  LAYER LIST
+// ═══════════════════════
+var ICONS={image:'🖼',text:'✏️',shape:'⬟',emoji:'😊'};
+function buildLayerList(){
+  var el=document.getElementById('layer-list');el.innerHTML='';
+  layers.slice().reverse().forEach(function(l){
+    var row=document.createElement('div');
+    row.className='layer-row'+(l.id===selId?' active':'');
+    row.innerHTML='<div class="layer-ico">'+(ICONS[l.type]||'?')+'</div>'+
+      '<div class="layer-info"><div class="layer-name">'+escHtml(l.name)+'</div>'+
+      '<div class="layer-sub">'+l.type+' · '+l.anim+'</div></div>'+
+      '<div class="vis-btn" data-id="'+l.id+'">'+(l.visible?'👁':'🙈')+'</div>';
+    row.querySelector('.vis-btn').addEventListener('click',function(e){
+      e.stopPropagation();
+      var layer=layers.find(function(x){return x.id==this.dataset.id;},this);
+      if(layer){layer.visible=!layer.visible;refreshAll();}
+    });
+    row.addEventListener('click',function(){selId=l.id;refreshAll();});
+    el.appendChild(row);
+  });
+}
+function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+// ═══════════════════════
+//  PROPS SYNC
+// ═══════════════════════
+function syncProps(){
+  var l=getSel();if(!l)return;
+  document.getElementById('p-x').value=Math.round(l.x);
+  document.getElementById('p-y').value=Math.round(l.y);
+  document.getElementById('sl-scale').value=Math.round(l.scale*100);
+  document.getElementById('v-scale').textContent=Math.round(l.scale*100)+'%';
+  document.getElementById('sl-rot').value=Math.round(l.rot);
+  document.getElementById('v-rot').textContent=Math.round(l.rot)+'°';
+  document.getElementById('sl-alpha').value=Math.round(l.alpha*100);
+  document.getElementById('v-alpha').textContent=Math.round(l.alpha*100)+'%';
+  document.getElementById('sl-speed').value=Math.round((l.animSpeed||1)*5);
+  document.getElementById('v-speed').textContent=Math.round((l.animSpeed||1)*5);
+  document.querySelectorAll('.anim-btn').forEach(function(b){b.classList.toggle('active',b.dataset.anim===l.anim);});
+  // text
+  if(l.type==='text'||l.type==='emoji'){
+    document.getElementById('text-input-area').value=l.text||l.emoji||'';
+    document.getElementById('sl-fsize').value=l.fontSize||36;
+    document.getElementById('v-fsize').textContent=l.fontSize||36;
+    document.getElementById('p-color').value=l.color||'#cc2200';
+    document.getElementById('p-stroke').value=l.strokeColor||'#ffffff';
+    document.getElementById('sl-sw').value=l.strokeWidth||4;
+    document.getElementById('v-sw').textContent=l.strokeWidth||4;
+  }
+}
+
+function updateProp(key, val){
+  var l=getSel();if(!l)return;
+  l[key]=val;render(curTime);buildLayerList();buildMiniTL();
+}
+
+function getSel(){return layers.find(function(l){return l.id===selId;});}
+
+function refreshAll(){
+  render(curTime);buildLayerList();buildMiniTL();syncProps();
+}
+
+// ═══════════════════════
+//  ANIM
+// ═══════════════════════
+function setAnim(type){
+  var l=getSel();if(!l){notify('請先選擇圖層');return;}
+  l.anim=type;
+  document.querySelectorAll('.anim-btn').forEach(function(b){b.classList.toggle('active',b.dataset.anim===type);});
+  buildLayerList();buildMiniTL();
+  notify('動畫效果: '+type);
+}
+
+// ═══════════════════════
+//  ADD LAYERS
+// ═══════════════════════
+var EMOJIS=['😄','😂','🥳','❤️','🔥','⭐','💯','🎉','😭','🙏','👍','🤩','😍','🎊','✨'];
+var emojiIdx=0,shapeIdx=0;
+
+function addEmojiLayer(){
+  var em=EMOJIS[emojiIdx%EMOJIS.length];emojiIdx++;
+  var l=mkLayer({name:'貼圖: '+em,type:'emoji',emoji:em,x:100+Math.random()*120,y:80+Math.random()*110,fontSize:72,anim:'bounce',animSpeed:.9+Math.random()*.2});
+  layers.push(l);selId=l.id;refreshAll();
+  notify('新增: '+em);
+}
+var SHAPES=['circle','rect','star'];
+var COLORS=['#ff4466','#44aaff','#ffcc00','#44dd88','#ff8800'];
+function addShapeLayer(){
+  var st=SHAPES[shapeIdx%SHAPES.length];shapeIdx++;
+  var l=mkLayer({name:'形狀',type:'shape',shapeType:st,x:80+Math.random()*160,y:60+Math.random()*150,fillColor:COLORS[shapeIdx%COLORS.length],anim:'spin',w:80,h:80});
+  layers.push(l);selId=l.id;refreshAll();
+  notify('新增形狀: '+st);
+}
+function addTextFromTab(){
+  var txt=document.getElementById('text-input-area').value.trim()||'文字';
+  var l=mkLayer({name:'文字: '+txt,type:'text',text:txt,x:160,y:220,fontSize:40,color:document.getElementById('p-color').value||'#cc2200',strokeColor:document.getElementById('p-stroke').value||'#fff',strokeWidth:4,anim:'pulse'});
+  layers.push(l);selId=l.id;refreshAll();
+  notify('新增文字圖層');
+}
+function delSelectedLayer(){
+  if(!selId){notify('請先選擇圖層');return;}
+  layers=layers.filter(function(l){return l.id!==selId;});
+  selId=null;refreshAll();notify('已刪除圖層');
+}
+
+// ═══════════════════════
+//  IMAGE IMPORT
+// ═══════════════════════
+function openUpload(){document.getElementById('upload-sheet').classList.add('show');}
+function closeUpload(){document.getElementById('upload-sheet').classList.remove('show');}
+function handleFiles(files){
+  closeUpload();
+  for(var i=0;i<files.length;i++){(function(f){
+    var r=new FileReader();
+    r.onload=function(ev){
+      var img=new Image();
+      img.onload=function(){
+        var maxD=200;
+        var sc=Math.min(1,maxD/Math.max(img.naturalWidth,img.naturalHeight));
+        var l=mkLayer({name:f.name.replace(/\.[^.]+$/,''),type:'image',img:img,x:160,y:135,scale:sc,anim:'none'});
+        layers.push(l);selId=l.id;refreshAll();notify('匯入: '+f.name);
+      };
+      img.src=ev.target.result;
+    };
+    r.readAsDataURL(f);
+  })(files[i]);}
+}
+function handleDrop(e){
+  e.preventDefault();e.currentTarget.classList.remove('drag');
+  handleFiles(e.dataTransfer.files);
+}
+
+// ═══════════════════════
+//  CANVAS TOUCH/MOUSE
+// ═══════════════════════
+function getPos(e, isTouch) {
+  var rect=C.getBoundingClientRect();
+  var scX=C.width/rect.width, scY=C.height/rect.height;
+  var src=isTouch?e.touches[0]:e;
+  return {x:(src.clientX-rect.left)*scX, y:(src.clientY-rect.top)*scY};
+}
+function hitTest(l,mx,my){
+  var sz=(l.fontSize||70)*l.scale;
+  return mx>=l.x-sz&&mx<=l.x+sz&&my>=l.y-sz&&my<=l.y+sz;
+}
+function startDrag(pos){
+  for(var i=layers.length-1;i>=0;i--){
+    var l=layers[i];
+    if(!l.visible)continue;
+    if(hitTest(l,pos.x,pos.y)){
+      selId=l.id;dragging=l;
+      dragOX=pos.x-l.x;dragOY=pos.y-l.y;
+      refreshAll();return;
+    }
+  }
+  selId=null;dragging=null;refreshAll();
+}
+C.addEventListener('mousedown',function(e){startDrag(getPos(e,false));});
+C.addEventListener('touchstart',function(e){startDrag(getPos(e,true));},{passive:true});
+C.addEventListener('mousemove',function(e){
+  if(!dragging)return;
+  var p=getPos(e,false);
+  dragging.x=p.x-dragOX;dragging.y=p.y-dragOY;
+  document.getElementById('p-x').value=Math.round(dragging.x);
+  document.getElementById('p-y').value=Math.round(dragging.y);
+  render(curTime);
+});
+C.addEventListener('touchmove',function(e){
+  if(!dragging)return;
+  var p=getPos(e,true);
+  dragging.x=p.x-dragOX;dragging.y=p.y-dragOY;
+  document.getElementById('p-x').value=Math.round(dragging.x);
+  document.getElementById('p-y').value=Math.round(dragging.y);
+  render(curTime);
+},{passive:true});
+C.addEventListener('mouseup',function(){if(dragging){dragging=null;buildMiniTL();}});
+C.addEventListener('touchend',function(){if(dragging){dragging=null;buildMiniTL();}});
+
+// ═══════════════════════
+//  EXPORT
+// ═══════════════════════
+function openExport(){document.getElementById('export-sheet').classList.add('show');document.getElementById('exp-prog').style.display='none';document.getElementById('exp-bar').style.width='0%';document.getElementById('exp-status').textContent='';}
+function closeExport(){document.getElementById('export-sheet').classList.remove('show');}
+function selExp(f){
+  expFmt=f;
+  ['png','frames'].forEach(function(x){document.getElementById('eo-'+x).classList.toggle('sel',x===f);});
+}
+function doExport(){
+  var prog=document.getElementById('exp-prog');
+  var bar=document.getElementById('exp-bar');
+  var status=document.getElementById('exp-status');
+  prog.style.display='block';bar.style.width='5%';
+  if(expFmt==='png'){
+    status.textContent='渲染靜態幀...';
+    setTimeout(function(){
+      render(0);bar.style.width='80%';
+      C.toBlob(function(blob){
+        downloadBlob(blob,'sticker.png');
+        bar.style.width='100%';status.textContent='✓ 完成！';
+        notify('PNG 已下載！');
+      },'image/png');
+    },200);
+  } else {
+    var total=Math.min(Math.ceil(duration*fps),48);
+    var fi=0;
+    status.textContent='逐幀渲染...';
+    function next(){
+      if(fi>=total){bar.style.width='100%';status.textContent='✓ 幀序列完成！';notify('幀序列下載完成！');return;}
+      render((fi/total)*duration);
+      bar.style.width=Math.round(fi/total*100)+'%';
+      status.textContent='幀 '+(fi+1)+' / '+total;
+      var idx=fi;
+      C.toBlob(function(b){downloadBlob(b,'frame_'+String(idx).padStart(3,'0')+'.png');});
+      fi++;setTimeout(next,80);
+    }
+    next();
+  }
+}
+function downloadBlob(blob,name){
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;a.download=name;
+  document.body.appendChild(a);a.click();
+  document.body.removeChild(a);URL.revokeObjectURL(url);
+}
+
+// ═══════════════════════
+//  TABS
+// ═══════════════════════
+function switchTab(id){
+  document.querySelectorAll('.tab').forEach(function(t){t.classList.toggle('active',t.dataset.tab===id);});
+  document.querySelectorAll('.tab-pane').forEach(function(p){p.classList.toggle('active',p.id==='tab-'+id);});
+}
+
+// ═══════════════════════
+//  NOTIFY
+// ═══════════════════════
+var notifTm;
+function notify(msg){
+  var el=document.getElementById('notif');
+  el.textContent=msg;el.classList.add('show');
+  clearTimeout(notifTm);
+  notifTm=setTimeout(function(){el.classList.remove('show');},2200);
+}
+
+// ═══════════════════════
+//  INIT
+// ═══════════════════════
+function init(){
+  sizeCanvas();
+  // demo layers
+  layers.push(mkLayer({name:'背景',type:'shape',shapeType:'rect',x:160,y:135,w:320,h:270,fillColor:'#fff9e6',anim:'none'}));
+  var em=mkLayer({name:'主角貼圖',type:'emoji',emoji:'😄',x:160,y:120,fontSize:90,anim:'bounce',animSpeed:1});
+  layers.push(em);
+  var txt=mkLayer({name:'文字標語',type:'text',text:'加油！',x:160,y:230,fontSize:44,color:'#cc2200',strokeColor:'#fff',strokeWidth:4,anim:'pulse',animSpeed:1});
+  layers.push(txt);
+  selId=em.id;
+  refreshAll();
+  notify('拖曳貼圖移動位置 · 下方切換功能');
+}
+
+window.addEventListener('resize',function(){sizeCanvas();buildMiniTL();});
+init();
+</script>
+</body>
+</html>
